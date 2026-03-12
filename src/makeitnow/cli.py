@@ -53,6 +53,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if not shutil.which("docker"):
+        print(
+            "[makeitnow] ERROR: docker not found on PATH.\n"
+            "  Install Docker and try again: https://docs.docker.com/get-docker/",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     repo_url: str = args.repo_url
     keep: bool = args.keep or args.clone_dir is not None
 

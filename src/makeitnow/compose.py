@@ -31,35 +31,45 @@ def _exposed_container_port(compose_file: Path) -> int:
 
 def run_with_compose(repo_dir: Path, compose_file: Path, host_port: int) -> None:
     """Start services defined in *compose_file*, mapping the first exposed port to *host_port*."""
-    container_port = _exposed_container_port(compose_file)
     env_override = {
         "PORT": str(host_port),
     }
-    result = subprocess.run(
-        [
-            "docker", "compose",
-            "-f", str(compose_file),
-            "up", "--build", "-d",
-            "--scale", f"app=1",
-        ],
-        cwd=str(repo_dir),
-        env={**_base_env(), **env_override},
-    )
+    try:
+        result = subprocess.run(
+            [
+                "docker", "compose",
+                "-f", str(compose_file),
+                "up", "--build", "-d",
+            ],
+            cwd=str(repo_dir),
+            env={**_base_env(), **env_override},
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "docker not found. Please install Docker and ensure it is on your PATH.\n"
+            "  https://docs.docker.com/get-docker/"
+        )
     if result.returncode != 0:
         raise RuntimeError(f"docker compose up failed (exit {result.returncode})")
 
 
 def run_with_docker(image_tag: str, host_port: int, container_port: int = 80) -> None:
     """Run *image_tag* mapping *host_port* → *container_port*."""
-    result = subprocess.run(
-        [
-            "docker", "run", "-d",
-            "--restart=unless-stopped",
-            "-p", f"{host_port}:{container_port}",
-            "--name", _safe_name(image_tag),
-            image_tag,
-        ],
-    )
+    try:
+        result = subprocess.run(
+            [
+                "docker", "run", "-d",
+                "--restart=unless-stopped",
+                "-p", f"{host_port}:{container_port}",
+                "--name", _safe_name(image_tag),
+                image_tag,
+            ],
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "docker not found. Please install Docker and ensure it is on your PATH.\n"
+            "  https://docs.docker.com/get-docker/"
+        )
     if result.returncode != 0:
         raise RuntimeError(f"docker run failed (exit {result.returncode})")
 

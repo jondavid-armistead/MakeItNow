@@ -34,11 +34,17 @@ def build_image(repo_dir: Path, tag: str) -> str:
         )
 
     context_dir = dockerfile.parent
-    result = subprocess.run(
-        ["docker", "build", "-t", tag, "-f", str(dockerfile), str(context_dir)],
-        capture_output=False,  # stream output so user sees build progress
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "build", "-t", tag, "-f", str(dockerfile), str(context_dir)],
+            capture_output=False,  # stream output so user sees build progress
+            text=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "docker not found. Please install Docker and ensure it is on your PATH.\n"
+            "  https://docs.docker.com/get-docker/"
+        )
     if result.returncode != 0:
         raise RuntimeError(f"docker build failed (exit {result.returncode})")
     return tag

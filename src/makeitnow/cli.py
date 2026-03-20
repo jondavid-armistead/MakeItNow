@@ -9,6 +9,7 @@ from makeitnow.clone import clone, repo_name_from_url, short_sha
 from makeitnow.docker_build import build_image, find_dockerfile
 from makeitnow.ports import find_free_port
 from makeitnow.compose import find_compose_file, run_with_compose, run_with_docker
+from makeitnow.env_scan import scan_env_vars, is_required
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,7 +50,68 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> None:
+def _build_env_file(repo_dir: Path) -> None:
+    """Scan repo for env var references, prompt the user, and write a .env file."""
+    print("[makeitnow] Scanning for environment variables…")
+    found = scan_env_vars(repo_dir)
+
+    env_path = repo_dir / ".env"
+
+    if not found:
+        env_path.touch()
+        return
+
+    required = sorted(v for v in found if is_required(v))
+    optional = sorted(v for v in found if not is_required(v))
+    all_vars = required + optional
+
+    print(f"\n[makeitnow] Found {len(all_vars)} environment variable(s) referenced in this repo:\n")
+    for v in required:
+        print(f"  {v}=  \033[33m(required)\033[0m")
+    for v in optional:
+        print(f"  {v}=")
+    print()
+
+    try:
+        answer = input("[makeitnow] Create .env with these variables? [Y/n]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        env_path.touch()
+        return
+
+    if answer in ("n", "no"):
+        env_path.touch()
+        return
+
+    values: dict[str, str] = {}
+
+    if required:
+        print("\n[makeitnow] Enter values for required variables (press Enter to skip):")
+        for v in required:
+            try:
+                val = input(f"  {v}: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                val = ""
+                print()
+            if not val:
+                print(
+                    f"  \033[33m⚠  {v} left blank — the container may not function correctly without it.\033[0m",
+                    file=sys.stderr,
+                )
+            values[v] = val
+
+    lines = [f"{v}={values.get(v, '')}" for v in all_vars]
+    env_path.write_text("\n".join(lines) + "\n")
+
+    print(f"\n[makeitnow] Created .env ({len(all_vars)} variable(s)):")
+    print("─" * 40)
+    for line in lines:
+        print(f"  {line}")
+    print("─" * 40)
+    print()
+
+
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -75,6 +137,8 @@ def main(argv: list[str] | None = None) -> None:
     image_tag = f"{repo_name}:{sha}"
 
     print(f"[makeitnow] Cloned to {repo_dir}")
+
+    _build_env_file(repo_dir)
 
     compose_file = find_compose_file(repo_dir)
     host_port = find_free_port(start=args.port_start)

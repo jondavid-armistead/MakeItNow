@@ -109,9 +109,8 @@ def _build_env_file(repo_dir: Path) -> None:
         print(f"  {line}")
     print("─" * 40)
     print()
-
-
-
+def main(argv: list[str] | None = None) -> None:
+    """CLI entrypoint used by the console script."""
     parser = build_parser()
     args = parser.parse_args(argv)
 

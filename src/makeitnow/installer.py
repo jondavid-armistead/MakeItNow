@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from makeitnow.docker_runtime import find_compose_command
+from makeitnow.install_artifacts import local_venv_path
 
 
 @dataclass(frozen=True)
@@ -252,7 +253,7 @@ def main() -> None:
 
 
 def _install_package(repo_root: Path, *, print_func=print) -> None:
-    venv_dir = repo_root / ".makeitnow-venv"
+    venv_dir = local_venv_path(repo_root)
     if not venv_dir.exists():
         print_func("[install] Creating local virtual environment ...")
         venv.EnvBuilder(with_pip=True).create(venv_dir)

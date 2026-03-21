@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
 set -eu
 
-exec python3 "$(dirname "$0")/install.py" "$@"
+REPO_ROOT=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m makeitnow.installer "$@"

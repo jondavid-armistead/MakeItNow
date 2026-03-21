@@ -8,7 +8,7 @@ if ($env:PYTHONPATH) {
 }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {
-    py -3 -m makeitnow.installer @args
+    py -3 -m makeitnow.uninstaller @args
 } else {
-    python -m makeitnow.installer @args
+    python -m makeitnow.uninstaller @args
 }

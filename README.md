@@ -30,6 +30,34 @@ The installer checks for `docker`, Docker Compose support, and `git`, shows the 
 
 At the end, it prints a summary of dependency status, the install actions completed during that run, and a short usage tutorial.
 
+## Uninstall
+
+```bash
+python uninstall.py
+```
+
+You can also use the wrappers:
+
+```bash
+sh uninstall.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+.\uninstall.ps1
+```
+
+Uninstall removes only these MakeItNow-managed local artifacts:
+
+- `.makeitnow-venv`
+- `install.py`
+- `run_makeitnow.py`
+
+It does **not** uninstall Docker, Docker Compose, Git, Python, or any system packages/applications.
+
+If you want to reinstall after uninstall removed `install.py`, use `sh install.sh` on POSIX systems or `.\install.ps1` on Windows PowerShell.
+
 ## Usage
 
 ```bash

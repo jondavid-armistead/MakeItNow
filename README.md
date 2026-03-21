@@ -106,6 +106,12 @@ python run_makeitnow.py https://github.com/org/my-app --container-port 8080
 5. **Port** — scans for the next free TCP port from `--port-start`
 6. **Run** — starts via `docker compose up -d` (if Compose file found) or `docker run -d`
 
+### Multi-service Compose repos
+
+When a repo includes a Compose file with multiple services, MakeItNow now keeps Compose as the source of truth for build/startup, checks that the services stay running, inspects every externally published service port, and prints every reachable localhost URL it finds.
+
+For proxy-style setups such as nginx fronting an app service, MakeItNow validates the published ports against the Compose configuration instead of collapsing everything into one guessed endpoint.
+
 ## Environment Variable Discovery
 
 Before building, MakeItNow scans the repo for any environment variables the app expects and interactively creates a `.env` file. Scanning uses three layers, highest confidence first:

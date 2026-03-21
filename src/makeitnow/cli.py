@@ -7,7 +7,13 @@ from pathlib import Path
 
 from makeitnow.clone import clone, repo_name_from_url, short_sha
 from makeitnow.docker_build import build_image, find_dockerfile
-from makeitnow.compose import find_compose_file, run_with_compose, run_with_docker
+from makeitnow.compose import (
+    ComposeRunResult,
+    find_compose_file,
+    format_compose_result,
+    run_with_compose,
+    run_with_docker,
+)
 from makeitnow.docker_runtime import ensure_docker_access
 from makeitnow.env_scan import scan_env_vars, is_required
 from makeitnow.ports import find_free_port
@@ -148,14 +154,15 @@ def main(argv: list[str] | None = None) -> None:
     _build_env_file(repo_dir)
 
     compose_file = find_compose_file(repo_dir)
-    host_port = find_free_port(start=args.port_start)
+    compose_result: ComposeRunResult | None = None
 
     try:
         if compose_file:
             print(f"[makeitnow] Found {compose_file.name} — using docker compose")
-            print(f"[makeitnow] Building and starting services on port {host_port} …")
-            run_with_compose(repo_dir, compose_file, host_port)
+            print("[makeitnow] Building and starting compose services …")
+            compose_result = run_with_compose(repo_dir, compose_file, args.port_start)
         else:
+            host_port = find_free_port(start=args.port_start)
             dockerfile = find_dockerfile(repo_dir)
             if dockerfile is None:
                 print(
@@ -178,7 +185,11 @@ def main(argv: list[str] | None = None) -> None:
         if not keep:
             shutil.rmtree(repo_dir, ignore_errors=True)
 
-    print(f"\n[makeitnow] ✓ Running at http://localhost:{host_port}")
+    if compose_result is not None:
+        print()
+        print(format_compose_result(compose_result))
+    else:
+        print(f"\n[makeitnow] ✓ Running at http://localhost:{host_port}")
 
 
 if __name__ == "__main__":

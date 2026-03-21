@@ -59,6 +59,7 @@ def run_docker_command(
     action: str,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a Docker-related command and raise an actionable RuntimeError on failure."""
     try:
@@ -67,6 +68,7 @@ def run_docker_command(
             cwd=cwd,
             env=env,
             text=True,
+            stdout=subprocess.PIPE if capture_output else None,
             stderr=subprocess.PIPE,
         )
     except FileNotFoundError:

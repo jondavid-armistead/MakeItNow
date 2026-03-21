@@ -17,6 +17,7 @@ from makeitnow.compose import (
 from makeitnow.docker_runtime import ensure_docker_access
 from makeitnow.env_scan import scan_env_vars, is_required
 from makeitnow.ports import find_free_port
+from makeitnow.runtime_control import format_stop_result, stop_makeitnow_services
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,7 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
             "and run it on an available local port."
         ),
     )
-    parser.add_argument("repo_url", help="GitHub repository URL to clone and run")
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="GitHub repository URL to clone and run, or 'stop' to stop MakeItNow-managed services",
+    )
     parser.add_argument(
         "--port-start",
         type=int,
@@ -92,20 +97,23 @@ def _build_env_file(repo_dir: Path) -> None:
 
     values: dict[str, str] = {}
 
-    if required:
-        print("\n[makeitnow] Enter values for required variables (press Enter to skip):")
-        for v in required:
-            try:
-                val = input(f"  {v}: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                val = ""
-                print()
-            if not val:
-                print(
-                    f"  \033[33m⚠  {v} left blank — the container may not function correctly without it.\033[0m",
-                    file=sys.stderr,
-                )
-            values[v] = val
+    print("\n[makeitnow] Enter values for discovered variables (press Enter to skip):")
+    for v in all_vars:
+        prompt = f"  {v}"
+        if v in required:
+            prompt += " (required)"
+        prompt += ": "
+        try:
+            val = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            val = ""
+            print()
+        if v in required and not val:
+            print(
+                f"  \033[33m⚠  {v} left blank — the container may not function correctly without it.\033[0m",
+                file=sys.stderr,
+            )
+        values[v] = val
 
     lines = [f"{v}={values.get(v, '')}" for v in all_vars]
     env_path.write_text("\n".join(lines) + "\n")
@@ -123,6 +131,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.target == "stop":
+        print(format_stop_result(stop_makeitnow_services()))
+        return
+
+    if not args.target:
+        parser.error("the following arguments are required: target")
+
     if not shutil.which("git"):
         print(
             "[makeitnow] ERROR: git not found on PATH.\n"
@@ -135,7 +150,7 @@ def main(argv: list[str] | None = None) -> None:
     except RuntimeError as exc:
         print(f"[makeitnow] ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
-    repo_url: str = args.repo_url
+    repo_url: str = args.target
     keep: bool = args.keep or args.clone_dir is not None
 
     print(f"[makeitnow] Cloning {repo_url} …")
@@ -148,6 +163,7 @@ def main(argv: list[str] | None = None) -> None:
     repo_name = repo_name_from_url(repo_url)
     sha = short_sha(repo_dir)
     image_tag = f"{repo_name}:{sha}"
+    project_name = f"makeitnow-{repo_name}-{sha}"
 
     print(f"[makeitnow] Cloned to {repo_dir}")
 
@@ -160,7 +176,12 @@ def main(argv: list[str] | None = None) -> None:
         if compose_file:
             print(f"[makeitnow] Found {compose_file.name} — using docker compose")
             print("[makeitnow] Building and starting compose services …")
-            compose_result = run_with_compose(repo_dir, compose_file, args.port_start)
+            compose_result = run_with_compose(
+                repo_dir,
+                compose_file,
+                args.port_start,
+                project_name=project_name,
+            )
         else:
             host_port = find_free_port(start=args.port_start)
             dockerfile = find_dockerfile(repo_dir)

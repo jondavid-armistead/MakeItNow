@@ -64,6 +64,12 @@ If you want to reinstall after uninstall removed `install.py`, use `sh install.s
 python run_makeitnow.py <github-repo-url> [options]
 ```
 
+To stop MakeItNow-managed containers, remove their images when possible, and clean leftover `makeitnow_*` temp directories:
+
+```bash
+python run_makeitnow.py stop
+```
+
 ### Examples
 
 ```bash
@@ -108,7 +114,9 @@ python run_makeitnow.py https://github.com/org/my-app --container-port 8080
 
 ### Multi-service Compose repos
 
-When a repo includes a Compose file with multiple services, MakeItNow now keeps Compose as the source of truth for build/startup, checks that the services stay running, inspects every externally published service port, and prints every reachable localhost URL it finds.
+When a repo includes a Compose file with multiple services, MakeItNow keeps Compose as the source of truth for build/startup, inspects every externally published service port, and prints every reachable local URL it finds.
+
+If one service fails to start but others are still running, MakeItNow now reports the running services and their reachable ports anyway, plus a warning about the failed services.
 
 For proxy-style setups such as nginx fronting an app service, MakeItNow validates the published ports against the Compose configuration instead of collapsing everything into one guessed endpoint.
 

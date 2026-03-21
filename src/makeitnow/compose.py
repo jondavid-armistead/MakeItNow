@@ -40,6 +40,8 @@ class ComposeEndpoint:
 class ComposeRunResult:
     services: tuple[str, ...]
     endpoints: tuple[ComposeEndpoint, ...]
+    failed_services: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
 
 def find_compose_file(repo_dir: Path) -> Path | None:
@@ -141,44 +143,84 @@ def parse_compose_services(compose_file: Path) -> tuple[ComposeService, ...]:
 
 def format_compose_result(result: ComposeRunResult) -> str:
     """Render the final user-facing summary for a compose run."""
+    lines: list[str] = []
+    if result.services:
+        lines.append("[makeitnow] ✓ Running compose services: " + ", ".join(result.services))
+    else:
+        lines.append("[makeitnow] No compose services are currently running.")
+
     if result.endpoints:
-        lines = ["[makeitnow] ✓ Compose services running:"]
+        lines.append("[makeitnow] Reachable URLs:")
         for endpoint in result.endpoints:
             lines.append(
-                f"  - {endpoint.service_name}: http://localhost:{endpoint.host_port}"
+                f"  - {endpoint.service_name}: http://127.0.0.1:{endpoint.host_port}"
                 f" (container {endpoint.container_port}/{endpoint.protocol})"
             )
-        return "\n".join(lines)
+    if result.failed_services:
+        lines.append(
+            "[makeitnow] Warning: services not running: "
+            + ", ".join(result.failed_services)
+        )
+    for warning in result.warnings:
+        lines.append(f"[makeitnow] Warning: {warning}")
+    return "\n".join(lines)
 
-    services = ", ".join(result.services)
-    return f"[makeitnow] ✓ Compose services running: {services}"
 
-
-def run_with_compose(repo_dir: Path, compose_file: Path, port_start: int) -> ComposeRunResult:
+def run_with_compose(
+    repo_dir: Path,
+    compose_file: Path,
+    port_start: int,
+    *,
+    project_name: str | None = None,
+) -> ComposeRunResult:
     """Start services defined in *compose_file* and validate published endpoints."""
     compose_command = ensure_compose_available()
     services = parse_compose_services(compose_file)
     env_override = _allocate_port_overrides(services, start=port_start)
     env = {**_base_env(), **env_override}
+    command_prefix = _compose_command(compose_command, compose_file, project_name)
+    startup_warning: str | None = None
 
-    run_docker_command(
-        [
-            *compose_command,
-            "-f",
-            str(compose_file),
-            "up",
-            "--build",
-            "-d",
-        ],
-        action="docker compose up",
-        cwd=str(repo_dir),
-        env=env,
+    try:
+        run_docker_command(
+            [
+                *command_prefix,
+                "up",
+                "--build",
+                "-d",
+            ],
+            action="docker compose up",
+            cwd=str(repo_dir),
+            env=env,
+        )
+    except RuntimeError as exc:
+        startup_warning = str(exc)
+
+    declared_service_names = tuple(service.name for service in services)
+    running_services = _running_services(repo_dir, command_prefix, env)
+    if startup_warning is not None and not running_services:
+        raise RuntimeError(startup_warning)
+
+    failed_services = tuple(
+        service_name
+        for service_name in declared_service_names
+        if service_name not in running_services
     )
-
-    service_names = tuple(service.name for service in services)
-    _ensure_services_running(repo_dir, compose_command, compose_file, service_names, env)
-    endpoints = _resolve_endpoints(repo_dir, compose_command, compose_file, services, env)
-    return ComposeRunResult(services=service_names, endpoints=endpoints)
+    endpoints, warnings = _resolve_endpoints(
+        repo_dir,
+        command_prefix,
+        services,
+        running_services,
+        env,
+    )
+    if startup_warning is not None:
+        warnings.append(startup_warning)
+    return ComposeRunResult(
+        services=running_services,
+        endpoints=endpoints,
+        failed_services=failed_services,
+        warnings=tuple(warnings),
+    )
 
 
 def run_with_docker(image_tag: str, host_port: int, container_port: int = 80) -> None:
@@ -192,25 +234,23 @@ def run_with_docker(image_tag: str, host_port: int, container_port: int = 80) ->
             "-p",
             f"{host_port}:{container_port}",
             "--name",
-            _safe_name(image_tag),
+            _safe_name(f"makeitnow-{image_tag}"),
+            "--label",
+            "makeitnow.managed=true",
             image_tag,
         ],
         action="docker run",
     )
 
 
-def _ensure_services_running(
+def _running_services(
     repo_dir: Path,
-    compose_command: list[str],
-    compose_file: Path,
-    service_names: tuple[str, ...],
+    command_prefix: list[str],
     env: dict[str, str],
-) -> None:
+) -> tuple[str, ...]:
     result = run_docker_command(
         [
-            *compose_command,
-            "-f",
-            str(compose_file),
+            *command_prefix,
             "ps",
             "--services",
             "--status",
@@ -221,47 +261,44 @@ def _ensure_services_running(
         env=env,
         capture_output=True,
     )
-    running = {line.strip() for line in (result.stdout or "").splitlines() if line.strip()}
-    missing = [name for name in service_names if name not in running]
-    if missing:
-        raise RuntimeError(
-            "Some compose services did not stay running: " + ", ".join(missing)
-        )
+    return tuple(
+        line.strip()
+        for line in (result.stdout or "").splitlines()
+        if line.strip()
+    )
 
 
 def _resolve_endpoints(
     repo_dir: Path,
-    compose_command: list[str],
-    compose_file: Path,
+    command_prefix: list[str],
     services: tuple[ComposeService, ...],
+    running_services: tuple[str, ...],
     env: dict[str, str],
-) -> tuple[ComposeEndpoint, ...]:
+) -> tuple[tuple[ComposeEndpoint, ...], list[str]]:
     endpoints: list[ComposeEndpoint] = []
+    warnings: list[str] = []
+    running = set(running_services)
     seen: set[tuple[str, int, str]] = set()
     for service in services:
+        if service.name not in running:
+            continue
         for port in service.ports:
             key = (service.name, port.container_port, port.protocol)
             if key in seen:
                 continue
             seen.add(key)
 
-            published_port = _query_published_port(
-                repo_dir,
-                compose_command,
-                compose_file,
-                service.name,
-                port.container_port,
-                env,
-            )
+            published_port = _query_published_port(repo_dir, command_prefix, service.name, port.container_port, env)
             if published_port is None:
-                raise RuntimeError(
+                warnings.append(
                     f"Expected compose service {service.name} to publish container port "
                     f"{port.container_port}/{port.protocol}, but no published host port was found."
                 )
+                continue
 
             expected_port = _expected_host_port(port, env)
             if expected_port is not None and published_port != expected_port:
-                raise RuntimeError(
+                warnings.append(
                     f"Compose service {service.name} published localhost:{published_port}, "
                     f"but the compose configuration expected localhost:{expected_port}."
                 )
@@ -274,31 +311,31 @@ def _resolve_endpoints(
                     protocol=port.protocol,
                 )
             )
-    return tuple(endpoints)
+    return tuple(endpoints), warnings
 
 
 def _query_published_port(
     repo_dir: Path,
-    compose_command: list[str],
-    compose_file: Path,
+    command_prefix: list[str],
     service_name: str,
     container_port: int,
     env: dict[str, str],
 ) -> int | None:
-    result = run_docker_command(
-        [
-            *compose_command,
-            "-f",
-            str(compose_file),
-            "port",
-            service_name,
-            str(container_port),
-        ],
-        action="docker compose port",
-        cwd=str(repo_dir),
-        env=env,
-        capture_output=True,
-    )
+    try:
+        result = run_docker_command(
+            [
+                *command_prefix,
+                "port",
+                service_name,
+                str(container_port),
+            ],
+            action="docker compose port",
+            cwd=str(repo_dir),
+            env=env,
+            capture_output=True,
+        )
+    except RuntimeError:
+        return None
     outputs = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
     if not outputs:
         return None
@@ -339,6 +376,18 @@ def _expected_host_port(port: ComposePort, env: dict[str, str]) -> int | None:
     if port.host_var_default is not None:
         return port.host_var_default
     return None
+
+
+def _compose_command(
+    compose_command: list[str],
+    compose_file: Path,
+    project_name: str | None,
+) -> list[str]:
+    command = [*compose_command]
+    if project_name:
+        command.extend(["-p", project_name])
+    command.extend(["-f", str(compose_file)])
+    return command
 
 
 def _looks_like_short_port_entry(item: str) -> bool:

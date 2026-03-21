@@ -125,14 +125,24 @@ def test_run_with_compose_validates_services_and_reports_all_urls(
     monkeypatch.setattr("makeitnow.compose.ensure_compose_available", lambda: ["docker", "compose"])
     monkeypatch.setattr("makeitnow.compose.run_docker_command", fake_run)
 
-    result = run_with_compose(tmp_path, compose_file, 8080)
+    result = run_with_compose(tmp_path, compose_file, 8080, project_name="makeitnow-demo")
 
     assert result.services == ("proxy", "api", "db")
     assert result.endpoints[0].service_name == "proxy"
     assert result.endpoints[0].host_port == 8080
     assert result.endpoints[1].service_name == "api"
     assert result.endpoints[1].host_port == 5000
-    assert ("docker", "compose", "-f", str(compose_file), "up", "--build", "-d") in commands
+    assert (
+        "docker",
+        "compose",
+        "-p",
+        "makeitnow-demo",
+        "-f",
+        str(compose_file),
+        "up",
+        "--build",
+        "-d",
+    ) in commands
 
 
 def test_run_with_compose_allocates_variable_ports(monkeypatch, tmp_path: Path):
@@ -183,12 +193,52 @@ def test_format_compose_result_lists_all_urls():
             type("Endpoint", (), {"service_name": "proxy", "host_port": 8080, "container_port": 80, "protocol": "tcp"})(),
             type("Endpoint", (), {"service_name": "api", "host_port": 5000, "container_port": 5000, "protocol": "tcp"})(),
         ),
+        failed_services=("worker",),
+        warnings=("compose reported an error",),
     )
 
     summary = format_compose_result(result)
 
-    assert "proxy: http://localhost:8080" in summary
-    assert "api: http://localhost:5000" in summary
+    assert "proxy: http://127.0.0.1:8080" in summary
+    assert "api: http://127.0.0.1:5000" in summary
+    assert "services not running: worker" in summary
+    assert "compose reported an error" in summary
+
+
+def test_run_with_compose_reports_running_services_after_partial_failure(monkeypatch, tmp_path: Path):
+    compose_file = tmp_path / "docker-compose.yml"
+    compose_file.write_text(
+        textwrap.dedent(
+            """\
+            services:
+              proxy:
+                image: nginx
+                ports:
+                  - "8080:80"
+              worker:
+                image: busybox
+            """
+        )
+    )
+
+    def fake_run(command, **kwargs):
+        if command[-3:] == ["up", "--build", "-d"]:
+            raise RuntimeError("docker compose up failed (exit 1)")
+        if command[-4:] == ["ps", "--services", "--status", "running"]:
+            return subprocess.CompletedProcess(command, 0, "proxy\n", "")
+        if command[-3:] == ["port", "proxy", "80"]:
+            return subprocess.CompletedProcess(command, 0, "0.0.0.0:8080\n", "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("makeitnow.compose.ensure_compose_available", lambda: ["docker", "compose"])
+    monkeypatch.setattr("makeitnow.compose.run_docker_command", fake_run)
+
+    result = run_with_compose(tmp_path, compose_file, 8080)
+
+    assert result.services == ("proxy",)
+    assert result.failed_services == ("worker",)
+    assert result.endpoints[0].host_port == 8080
+    assert any("docker compose up failed" in warning for warning in result.warnings)
 
 
 def test_find_dockerfile_at_root(tmp_path: Path):

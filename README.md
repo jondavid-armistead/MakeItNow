@@ -11,32 +11,48 @@ Clone a GitHub repo, build its Docker image, and run it on an available local po
 ## Installation
 
 ```bash
-pip install -e .
+python install.py
 ```
+
+You can also use the thin wrappers:
+
+```bash
+sh install.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+.\install.ps1
+```
+
+The installer checks for `docker`, Docker Compose support, and `git`, shows the packages/apps it plans to install for each missing dependency, lets the user choose dependency-by-dependency, creates a local `.makeitnow-venv`, installs MakeItNow into it, and leaves you with a repo-local launcher so you do not have to activate a virtual environment manually.
+
+At the end, it prints a summary of dependency status, the install actions completed during that run, and a short usage tutorial.
 
 ## Usage
 
 ```bash
-makeitnow <github-repo-url> [options]
+python run_makeitnow.py <github-repo-url> [options]
 ```
 
 ### Examples
 
 ```bash
 # Clone, build, and run on the next free port starting at 8080
-makeitnow https://github.com/org/my-app
+python run_makeitnow.py https://github.com/org/my-app
 
 # Start scanning from port 3000
-makeitnow https://github.com/org/my-app --port-start 3000
+python run_makeitnow.py https://github.com/org/my-app --port-start 3000
 
 # Keep the cloned repo after running
-makeitnow https://github.com/org/my-app --keep
+python run_makeitnow.py https://github.com/org/my-app --keep
 
 # Clone into a specific directory
-makeitnow https://github.com/org/my-app --clone-dir ./my-app
+python run_makeitnow.py https://github.com/org/my-app --clone-dir ./my-app
 
 # Override the container-side port (for docker run path)
-makeitnow https://github.com/org/my-app --container-port 8080
+python run_makeitnow.py https://github.com/org/my-app --container-port 8080
 ```
 
 ### Output
@@ -120,3 +136,12 @@ Once discovered, MakeItNow lists the variables and asks for confirmation before 
 | `--keep` | off | Keep cloned repo after running |
 | `--clone-dir DIR` | temp dir | Clone into a specific directory |
 
+## Troubleshooting
+
+If MakeItNow reports that Docker cannot access `/var/run/docker.sock`, that usually means Docker is installed but your user cannot talk to the Docker daemon yet. Common fixes are:
+
+- Start Docker Desktop or the Docker service.
+- Add your user to the `docker` group on Linux, then sign out and back in.
+- Rerun `python install.py` if Docker, Compose, or Git still need to be installed.
+
+The installer never stores sudo or administrator passwords. If elevated access is needed, the operating system or package manager prompts for it directly.

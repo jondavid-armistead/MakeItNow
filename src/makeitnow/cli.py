@@ -7,9 +7,10 @@ from pathlib import Path
 
 from makeitnow.clone import clone, repo_name_from_url, short_sha
 from makeitnow.docker_build import build_image, find_dockerfile
-from makeitnow.ports import find_free_port
 from makeitnow.compose import find_compose_file, run_with_compose, run_with_docker
+from makeitnow.docker_runtime import ensure_docker_access
 from makeitnow.env_scan import scan_env_vars, is_required
+from makeitnow.ports import find_free_port
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -109,17 +110,24 @@ def _build_env_file(repo_dir: Path) -> None:
         print(f"  {line}")
     print("─" * 40)
     print()
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entrypoint used by the console script."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not shutil.which("docker"):
+    if not shutil.which("git"):
         print(
-            "[makeitnow] ERROR: docker not found on PATH.\n"
-            "  Install Docker and try again: https://docs.docker.com/get-docker/",
+            "[makeitnow] ERROR: git not found on PATH.\n"
+            "  Install Git and try again: https://git-scm.com/downloads",
             file=sys.stderr,
         )
+        sys.exit(1)
+    try:
+        ensure_docker_access()
+    except RuntimeError as exc:
+        print(f"[makeitnow] ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
     repo_url: str = args.repo_url
     keep: bool = args.keep or args.clone_dir is not None

@@ -1,7 +1,8 @@
 """Build a Docker image from a cloned repository."""
 
-import subprocess
 from pathlib import Path
+
+from makeitnow.docker_runtime import run_docker_command
 
 
 def find_dockerfile(repo_dir: Path) -> Path | None:
@@ -34,17 +35,8 @@ def build_image(repo_dir: Path, tag: str) -> str:
         )
 
     context_dir = dockerfile.parent
-    try:
-        result = subprocess.run(
-            ["docker", "build", "-t", tag, "-f", str(dockerfile), str(context_dir)],
-            capture_output=False,  # stream output so user sees build progress
-            text=True,
-        )
-    except FileNotFoundError:
-        raise RuntimeError(
-            "docker not found. Please install Docker and ensure it is on your PATH.\n"
-            "  https://docs.docker.com/get-docker/"
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f"docker build failed (exit {result.returncode})")
+    run_docker_command(
+        ["docker", "build", "-t", tag, "-f", str(dockerfile), str(context_dir)],
+        action="docker build",
+    )
     return tag

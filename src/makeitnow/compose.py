@@ -1,9 +1,9 @@
 """Run a Docker image via Compose or plain docker run."""
 
 import re
-import subprocess
 from pathlib import Path
 
+from makeitnow.docker_runtime import ensure_compose_available, run_docker_command
 
 _COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 
@@ -31,53 +31,48 @@ def _exposed_container_port(compose_file: Path) -> int:
 
 def run_with_compose(repo_dir: Path, compose_file: Path, host_port: int) -> None:
     """Start services defined in *compose_file*, mapping the first exposed port to *host_port*."""
+    compose_command = ensure_compose_available()
     env_override = {
         "PORT": str(host_port),
     }
-    try:
-        result = subprocess.run(
-            [
-                "docker", "compose",
-                "-f", str(compose_file),
-                "up", "--build", "-d",
-            ],
-            cwd=str(repo_dir),
-            env={**_base_env(), **env_override},
-        )
-    except FileNotFoundError:
-        raise RuntimeError(
-            "docker not found. Please install Docker and ensure it is on your PATH.\n"
-            "  https://docs.docker.com/get-docker/"
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f"docker compose up failed (exit {result.returncode})")
+    run_docker_command(
+        [
+            *compose_command,
+            "-f",
+            str(compose_file),
+            "up",
+            "--build",
+            "-d",
+        ],
+        action="docker compose up",
+        cwd=str(repo_dir),
+        env={**_base_env(), **env_override},
+    )
 
 
 def run_with_docker(image_tag: str, host_port: int, container_port: int = 80) -> None:
     """Run *image_tag* mapping *host_port* → *container_port*."""
-    try:
-        result = subprocess.run(
-            [
-                "docker", "run", "-d",
-                "--restart=unless-stopped",
-                "-p", f"{host_port}:{container_port}",
-                "--name", _safe_name(image_tag),
-                image_tag,
-            ],
-        )
-    except FileNotFoundError:
-        raise RuntimeError(
-            "docker not found. Please install Docker and ensure it is on your PATH.\n"
-            "  https://docs.docker.com/get-docker/"
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f"docker run failed (exit {result.returncode})")
+    run_docker_command(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--restart=unless-stopped",
+            "-p",
+            f"{host_port}:{container_port}",
+            "--name",
+            _safe_name(image_tag),
+            image_tag,
+        ],
+        action="docker run",
+    )
 
 
 def _safe_name(tag: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]", "-", tag)
 
 
-def _base_env() -> dict:
+def _base_env() -> dict[str, str]:
     import os
+
     return dict(os.environ)
